@@ -22,12 +22,33 @@ export type Patient = {
   updated_at: string;
 };
 
+export type StructuredCallData = {
+  patient_first_name?: string;
+  patient_last_name?: string;
+  caller_intent?: string;
+  registration_completed?: boolean;
+  existing_patient_recognized?: boolean;
+  appointment_booked?: boolean;
+};
+
 export type CallLog = {
   call_id: string;
   patient_id: string | null;
   transcript: unknown;
   summary: string | null;
+  structured_data?: StructuredCallData | null;
+  success_evaluation?: string | boolean | null;
   ended_reason?: string | null;
+  created_at: string;
+};
+
+export type Appointment = {
+  appointment_id: string;
+  patient_id: string;
+  patient_name: string | null;
+  label: string;
+  reason: string | null;
+  status: string;
   created_at: string;
 };
 
@@ -60,4 +81,10 @@ export function getPatient(id: string) {
 
 export function listCallLogs(patientId?: string) {
   return request<CallLog[]>(patientId ? `/call-logs?patient_id=${patientId}` : "/call-logs");
+}
+
+export function listAppointments(patientId?: string) {
+  return request<Appointment[]>(
+    patientId ? `/appointments?patient_id=${patientId}` : "/appointments"
+  );
 }

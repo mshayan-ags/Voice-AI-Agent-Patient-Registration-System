@@ -7,8 +7,8 @@ Registration take-home assessment.
 
 **Live demo**
 - Phone number: **+1 (234) 404-2250**
-- API base URL: `<fill in after permanent deployment — currently ngrok, see "Deployment status" below>`
-- Dashboard: `<fill in after permanent deployment>`
+- API base URL: **https://carecloud-backend.onrender.com**
+- Dashboard: `<fill in once the frontend is deployed - see "Deployment status" below>`
 
 ## Screenshots
 
@@ -93,21 +93,21 @@ polished away, since the trade-offs are part of the deliverable):
 Caller
   │  (PSTN call)
   ▼
-Vapi  ───────────────► OpenRouter (LLM, native "openrouter" model provider)
+Vapi  ───────────────► OpenRouter (LLM: nvidia/nemotron-3-super-120b-a12b:free)
   │  transcriber: Deepgram (Vapi default)
-  │  voice: ElevenLabs (eleven_flash_v2_5, for lower latency)
+  │  voice: ElevenLabs (eleven_flash_v2_5 primary + a fallback voice)
   │
   │  function/tool calls + end-of-call-report over HTTPS webhook
   ▼
-FastAPI backend  ───────────────►  MongoDB Atlas
+FastAPI backend (Render)  ─────►  MongoDB Atlas
   │  (app/api, app/services, app/db)         (patients, call_logs,
   │                                            call_sessions, appointments)
   ▼
-REST API (/patients, /call-logs, /appointments)
+REST API (/patients, /appointments, /call-logs)
   ▲
   │  fetch()
-Next.js dashboard (bonus) — patient list, patient detail + call history,
-                            global call-logs page
+Next.js dashboard (bonus) — patients + stats, appointments, call logs,
+                            patient detail with call/appointment history
 ```
 
 Layers are kept deliberately separate:
@@ -126,10 +126,11 @@ Layers are kept deliberately separate:
 | Layer | Choice | Why |
 |---|---|---|
 | Telephony + orchestration | **Vapi** | Provisions a real number and handles STT + call orchestration + function-calling out of the box. |
-| LLM | **OpenRouter** | One API key, model-agnostic. Reached through Vapi's native `openrouter` model provider (a Vapi Credential holds the key; the assistant just names a model). |
-| Voice | **ElevenLabs** | Natural-sounding TTS; `eleven_flash_v2_5` specifically for lower per-turn latency on a live call. |
+| LLM | **OpenRouter** | One API key, model-agnostic. Reached through Vapi's native `openrouter` model provider (a Vapi Credential holds the key; the assistant just names a model). Pinned to `nvidia/nemotron-3-super-120b-a12b:free` - verified against a real tool-calling prompt before committing to it (see "Known limitations" for the trade-off). |
+| Voice | **ElevenLabs** | Natural-sounding TTS; `eleven_flash_v2_5` specifically for lower per-turn latency, plus a second voice configured as `fallbackPlan` so one bad voice/model combination can't take the whole call down (see "Known limitations"). |
 | Backend | **FastAPI (Python)** | Async, first-class Pydantic validation reused for both API input and Vapi tool-argument validation. |
 | Database | **MongoDB Atlas (free M0)** | Document model suits the mostly-optional-field patient schema well. Motor gives async access from FastAPI. |
+| Backend hosting | **Render (free tier)** | Deployed straight from GitHub via Render's API; free and persistent (cold-starts after idle, see "Known limitations"). |
 | Frontend (bonus) | **Next.js** | Small App Router dashboard reading directly from the REST API. |
 
 ## Repository layout
@@ -174,6 +175,30 @@ Expose it publicly for Vapi's webhook during development:
 ngrok http 8000
 ```
 
+**Permanent deployment (Render, free tier):** push the repo to GitHub, then
+either connect it in the Render dashboard (New → Web Service → pick the
+repo, root directory `backend`, build command `pip install -r
+requirements.txt`, start command `uvicorn app.main:app --host 0.0.0.0 --port
+$PORT`, plan Free) or create it via the API:
+```bash
+curl -X POST https://api.render.com/v1/services -H "Authorization: Bearer $RENDER_API_KEY" \
+  -H "Content-Type: application/json" -d '{
+    "type": "web_service", "name": "carecloud-backend", "ownerId": "<your owner id>",
+    "repo": "https://github.com/<you>/<repo>", "branch": "main", "autoDeploy": "yes",
+    "rootDir": "backend",
+    "serviceDetails": {"env": "python", "region": "oregon", "plan": "free",
+      "envSpecificDetails": {"buildCommand": "pip install -r requirements.txt",
+        "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT"}}
+  }'
+```
+Then set `MONGODB_URI`, `MONGODB_DB_NAME`, `VAPI_WEBHOOK_SECRET`,
+`CORS_ORIGINS` as env vars on the service (dashboard, or `PUT
+/v1/services/:id/env-vars`), and add `PYTHON_VERSION=3.12.7` - Render's
+default Python (3.14 at time of writing) has no prebuilt wheel yet for one
+of this project's dependencies (`pydantic-core`), which fails the build
+trying to compile it from source in a read-only sandbox. Pinning a version
+with an available wheel is the fix (see "Known limitations").
+
 ### 3. Vapi assistant
 
 1. Create accounts: [vapi.ai](https://vapi.ai), [openrouter.ai](https://openrouter.ai/keys),
@@ -196,9 +221,10 @@ ngrok http 8000
    the call with `pipeline-error-eleven-labs-voice-failed` (this happened
    during development - see "Known limitations" below).
 4. `cd vapi && pip install -r requirements.txt && cp .env.example .env`
-5. Fill in `.env`: `VAPI_API_KEY`, `BACKEND_URL` (your ngrok URL),
+5. Fill in `.env`: `VAPI_API_KEY`, `BACKEND_URL` (your ngrok or Render URL),
    `VAPI_WEBHOOK_SECRET` (must match `backend/.env`), `OPENROUTER_API_KEY`,
-   `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` (from step 3).
+   `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` + `ELEVENLABS_FALLBACK_VOICE_ID`
+   (from step 3 - pick two different voices).
 6. `python setup_assistant.py create` → creates the assistant, prints its id.
 7. Get a phone number:
    ```bash
@@ -235,9 +261,10 @@ cp .env.local.example .env.local   # point at the backend URL
 npm run dev
 ```
 
-Visit `/` for the patient list and `/patients/:id` for detail + call
-history, or `/calls` for every logged call including ones that never
-reached a patient record.
+Visit `/` for the patient list + live stats, `/patients/:id` for full detail
+plus that patient's appointments and call history, `/appointments` for every
+booked appointment, or `/calls` for every logged call including ones that
+never reached a patient record.
 
 ## Environment variables
 
@@ -250,9 +277,10 @@ reached a patient record.
 | `vapi/.env` | `VAPI_API_KEY` | yes | Vapi private API key |
 | | `BACKEND_URL` | yes | public HTTPS URL of the FastAPI backend |
 | | `OPENROUTER_API_KEY` | yes | OpenRouter key (also registered as a Vapi Credential, see setup step 2) |
-| | `OPENROUTER_MODEL` | no | model id, must support tool/function calling |
+| | `OPENROUTER_MODEL` | no | model id, must support tool/function calling (default: a verified free-tier model, see "Tech stack") |
 | | `ELEVENLABS_API_KEY` | yes | ElevenLabs key (also registered as a Vapi Credential) |
 | | `ELEVENLABS_VOICE_ID` | no | must be a voice actually present in your ElevenLabs account - see setup step 3 |
+| | `ELEVENLABS_FALLBACK_VOICE_ID` | no | a second real voice id, used only if the primary fails mid-call |
 | `frontend/.env.local` | `NEXT_PUBLIC_API_BASE_URL` | yes | backend base URL |
 
 No API key is ever hardcoded in source - everything above is read from
@@ -271,8 +299,9 @@ All responses use the envelope `{"data": ..., "error": null}` (or
 | PUT | `/patients/{id}` | partial update |
 | DELETE | `/patients/{id}` | soft delete (`deleted_at` set, never hard-deleted) |
 | GET | `/appointments/slots` | bonus - mock open slots, each with a human-readable `label` |
+| GET | `/appointments?patient_id=` | bonus - every booked appointment (with patient name joined in), `patient_id` optional |
 | POST | `/appointments` | bonus - book a mock slot |
-| GET | `/call-logs?patient_id=` | bonus - transcript/summary/ended_reason for every call, `patient_id` optional |
+| GET | `/call-logs?patient_id=` | bonus - transcript/summary/structured_data/success_evaluation/ended_reason for every call, `patient_id` optional |
 | POST | `/vapi/tool-calls` | webhook Vapi calls mid-call and at end-of-call; requires `x-vapi-secret` header |
 
 ## How the voice agent persists data
@@ -289,9 +318,11 @@ patient, so a returning caller is told about it proactively in the same turn
 they're recognized, not only if they think to ask.
 
 When the call ends, Vapi's `end-of-call-report` webhook delivers a
-transcript and (with `analysisPlan.summaryPlan` enabled) a summary; both are
-stored in `call_logs` along with `ended_reason`, linked back to whichever
-patient was created or updated during that call (tracked via a
+transcript, a plain-text summary, a structured-data extraction (patient
+name, caller intent, whether registration/appointment succeeded), and a
+pass/fail success evaluation - all three configured via `analysisPlan` and
+all stored in `call_logs` along with `ended_reason`, linked back to
+whichever patient was created or updated during that call (tracked via a
 `call_sessions` collection keyed by Vapi's call id). Calls that never reach
 a patient - a hangup mid-intake, a pipeline failure - are still logged, with
 `patient_id: null` and whatever `ended_reason` Vapi reports, so a failed call
@@ -307,13 +338,16 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
   `{slot_id, label}` pairs (`appointment_service.py`); `book_appointment`
   rejects an unrecognized `slot_id` explicitly instead of silently
   substituting a different time.
-- **Call transcript storage** - every `end-of-call-report` is stored in
+- **Call transcript storage** - every `end-of-call-report` (transcript,
+  summary, structured data, success/fail evaluation) is stored in
   `call_logs`, including calls that failed before reaching a patient.
-- **Dashboard** - Next.js app: patient list with search, patient detail with
-  call history, and a global call-logs view (`/calls`).
-- **Automated tests** - `backend/tests/` (35 tests: validators, the full API
+- **Dashboard** - Next.js app: patient list with search and live stats,
+  patient detail with appointment + call history, a global appointments
+  view (`/appointments`), and a global call-logs view (`/calls`) showing
+  success/fail badges and extracted call data.
+- **Automated tests** - `backend/tests/` (37 tests: validators, the full API
   surface including duplicate-detection and soft-delete, appointment
-  booking/lookup, and the Vapi webhook path itself), run against an
+  booking/lookup/listing, and the Vapi webhook path itself), run against an
   in-memory mock Mongo.
 - Multi-language support was explicitly scoped out for this build, per the
   project owner's instruction.
@@ -333,7 +367,10 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
 - `last_name` search is regex-escaped (`re.escape`) before being used in a
   MongoDB `$regex` query, closing a NoSQL-injection/ReDoS path where a
   caller-supplied query param could otherwise be interpreted as a regex.
-- CORS is restricted to an explicit allowlist (`CORS_ORIGINS`), not `*`.
+- CORS is driven by an explicit allowlist config (`CORS_ORIGINS`), not
+  hardcoded `*` in code - the deployed instance is currently set to `*`
+  only because the dashboard doesn't have a permanent domain yet either;
+  tighten this to the dashboard's real origin once it's deployed.
 - Soft delete only (`deleted_at`), per the spec - no endpoint can hard-delete
   a patient record.
 - Not HIPAA compliant and not intended to store real patient data, per the
@@ -353,13 +390,21 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
 
 ## Known limitations / trade-offs
 
-- **"Free" telephony has real limits.** Vapi bills usage against a starter
-  credit balance, not literally $0/call - the dashboard shows a live
-  per-minute cost estimate (roughly $0.10-0.15/min at the model/voice
-  settings used here) and remaining credits. ElevenLabs' free tier caps at
-  10,000 characters/month. OpenRouter's `gpt-4o-mini` costs fractions of a
-  cent per call. None of this is unlimited-free, but all of it is well
-  within what a free trial covers for building and testing this assessment.
+- **"Free" telephony still has real limits, even after switching to a $0
+  LLM.** Vapi itself bills call minutes against a starter credit balance
+  (roughly $0.10-0.15/min at these settings) and ElevenLabs' free tier caps
+  at 10,000 characters/month - neither is avoidable without leaving Vapi/
+  ElevenLabs entirely. The LLM portion, however, is genuinely $0:
+  `nvidia/nemotron-3-super-120b-a12b:free` on OpenRouter. It was picked
+  over other free options after actually testing tool-calling against three
+  candidates - `z-ai/glm-5.2:free` and `google/gemma-4-31b-it:free` both hit
+  `429`s from a congested shared free-tier pool on the exact same request
+  that nemotron handled correctly. **That congestion is itself a real risk**
+  for a live demo: a free model's shared pool can be temporarily unavailable
+  at the exact moment someone calls in. `OPENROUTER_MODEL` in `vapi/.env` is
+  a one-line swap back to a cheap paid model (e.g. `openai/gpt-4o-mini`,
+  which cost $0.02 total across 66 requests in testing) if reliability ever
+  matters more than the last fraction of a cent.
 - **Vapi requires a card on file to allocate any phone number**, even a
   trial one - this blocked automated provisioning via `setup_assistant.py
   phone` during development. Worked around by creating the number by hand
@@ -369,9 +414,13 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
   default id for the "Rachel" voice wasn't present in this account's voice
   library, which failed every call with
   `pipeline-error-eleven-labs-voice-failed` until diagnosed via
-  `GET /v1/voices` and swapped for a voice id actually in the account.
-  Anyone reusing this repo should re-check their own account's voice list
-  rather than trust a hardcoded default.
+  `GET /v1/voices` and swapped for a voice id actually in the account. A
+  second, different voice is now configured as `voice.fallbackPlan` so a
+  similar failure mid-call falls back instead of ending the call - though
+  since both the primary and fallback are ElevenLabs, a full ElevenLabs
+  outage (rather than a single bad voice/model combination) would still
+  take the call down; a true cross-provider fallback would need a second
+  TTS vendor's API key, which wasn't in scope here.
 - **STT isn't perfect**, and no prompt can fix that - Deepgram occasionally
   mishears a word ("sex" as "six" was observed in testing). The system
   is designed to recover conversationally (re-ask, don't fail silently)
@@ -386,25 +435,35 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
   conversationally (apologize, retry once). A production system would add
   an idempotency key so a Vapi-side retry of the same tool call can't
   double-insert a patient.
-- **Render/Railway free tiers cold-start.** If the backend is deployed there
-  instead of run via ngrok, the first call after idle may see a multi-second
-  delay on the very first tool call.
+- **Render's free tier cold-starts.** The first tool call after ~15 minutes
+  of idle can see a multi-second delay while the instance spins back up -
+  the caller would experience this as a longer-than-usual pause on the
+  first "one sec" of a call after a quiet period.
+- **Render defaulted to a too-new Python (3.14) with no prebuilt wheel yet
+  for `pydantic-core`**, which made the build try to compile it from source
+  via Rust/maturin - and fail, because Render's build sandbox has a
+  read-only Cargo cache directory. Fixed by pinning `PYTHON_VERSION=3.12.7`
+  as an env var (documented in Setup step 2's deploy instructions) rather
+  than by changing any dependency version.
 - Not HIPAA compliant and not intended to store real patient data (per the
   assessment's own FAQ).
 
 ## Deployment status
 
-<!-- Update this section once permanent hosting is live. -->
-As of this writing the backend runs locally with an ngrok tunnel for the
-Vapi webhook - functional for live testing, but ngrok URLs are not
-permanent and stop working when the local process/tunnel is closed. See
-"Next steps" for the plan to move this to persistent hosting (Render) before
-final submission.
+Backend + phone number: **live and permanent** - the FastAPI service runs on
+Render (`https://carecloud-backend.onrender.com`), and the Vapi assistant's
+webhook points there, not at a local tunnel, so the number keeps working
+independent of any one machine staying on. Auto-deploys on every push to
+`main`.
+
+Dashboard: not yet deployed to a permanent host - run locally per Setup
+step 4 for now (`npm run dev`, pointed at the Render backend URL). Update
+this section once deployed.
 
 ## Next steps (if continuing past this assessment)
 
-- Deploy the backend to persistent hosting (Render free tier) so the number
-  keeps working independent of any one machine staying on.
+- Deploy the dashboard to a permanent host (Vercel) so it doesn't need a
+  local `npm run dev` process to view.
 - Idempotency keys on `create_patient` tool calls.
 - Real appointment system integration instead of mock slots.
 - Structured, per-call transcript search on the dashboard.

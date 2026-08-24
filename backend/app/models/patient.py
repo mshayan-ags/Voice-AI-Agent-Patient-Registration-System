@@ -109,11 +109,16 @@ class PatientBase(BaseModel):
 
 
 class PatientCreate(PatientBase):
-    pass
+    # Reject unknown keys rather than silently dropping them - a typo'd
+    # field name (or a client sending a field this API doesn't model yet)
+    # should be a 422, not data quietly going nowhere.
+    model_config = {"extra": "forbid"}
 
 
 class PatientUpdate(BaseModel):
     """Every field optional - PUT allows partial updates."""
+
+    model_config = {"extra": "forbid"}
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None

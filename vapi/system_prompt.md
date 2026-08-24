@@ -25,6 +25,17 @@ this file's content up automatically).
   goodbye line, and the assistant config additionally sets `endCallPhrases`
   as a backstop so Vapi force-ends the call if that phrase is heard even if
   the model forgets the tool call.
+- **`endCallPhrases` caused a worse bug than the one it fixed.** It included
+  "thanks for calling" - which was *also* in the first message. Vapi matches
+  these phrases as a substring against anything the assistant says, at any
+  point in the call, not just near an actual goodbye - so it force-ended
+  every single call the instant the greeting finished playing, before the
+  caller could say a word. Fixed by (a) removing every phrase from the list
+  that isn't exclusively goodbye-shaped, leaving only "have a great day" /
+  "have a wonderful day", and (b) rewriting the first message to not contain
+  any goodbye-adjacent phrasing at all. The lesson generalizes: never add a
+  phrase to `endCallPhrases` without first checking it doesn't also appear
+  in the first message or anywhere else the prompt tells the model to say.
 - **Filler variety, not filler ban.** Early transcripts showed the exact
   phrase "This will just take a sec" repeated verbatim across tool calls -
   technically fine, but reads as scripted. The prompt now gives a small pool
@@ -77,8 +88,10 @@ a quick "did you say X?" is fine - but that's for real uncertainty, not a
 routine habit after every answer.
 
 ## Flow
-1. Greet + ask name: "Hi! Thanks for calling — I can get you registered as a
-   new patient. Can I grab your first and last name to start?"
+1. Greet + ask name: "Hi! I can get you registered as a new patient — can I
+   grab your first and last name to start?" (Vapi's endCallPhrases matches
+   substrings anywhere in what you say, including this greeting - never
+   say "thanks for calling" here; save that phrase for the actual goodbye.)
 2. Ask phone_number immediately next — before DOB, before anything else.
 3. HARD RULE, not optional: the instant you have a 10-digit phone number,
    call check_existing_patient BEFORE your next question. Say a brief

@@ -64,7 +64,7 @@ Caller (PSTN)
 │  • Telephony + number provisioning                          │
 │  • Deepgram STT (default)                                   │
 │  • ElevenLabs TTS (primary + fallback voice)                │
-│  • OpenRouter LLM (nvidia/nemotron-3-super-120b:free)       │
+│  • OpenRouter LLM (openai/gpt-4o-mini)                      │
 │  • Function / tool calling                                  │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTPS webhooks
@@ -158,7 +158,7 @@ or on error:
 | Layer                    | Technology                          | Why chosen                                                                 |
 |--------------------------|-------------------------------------|----------------------------------------------------------------------------|
 | Telephony + Orchestration| **Vapi**                            | Real number + STT/TTS + tool calling with almost zero custom telephony code |
-| LLM                      | **OpenRouter** (nvidia/nemotron…)   | Model-agnostic, free tier available, easy to swap                          |
+| LLM                      | **OpenRouter** (`openai/gpt-4o-mini`) | Model-agnostic - a free-tier reasoning model was tried and reverted after it leaked chain-of-thought into real calls (see Known Limitations); costs fractions of a cent/call |
 | Voice (TTS)              | **ElevenLabs** (`eleven_flash_v2_5`)| Natural voice + low latency; fallback voice configured                     |
 | Backend                  | **FastAPI + Pydantic + Motor**      | Async, excellent validation, shared models for API + tools                 |
 | Database                 | **MongoDB Atlas** (free M0)         | Flexible schema for mostly-optional fields                                 |
@@ -279,7 +279,7 @@ Then set `NEXT_PUBLIC_API_BASE_URL` in the Vercel project settings and redeploy.
 |                     | `BACKEND_URL`                 | Yes      | Public HTTPS URL of the backend                  |
 |                     | `VAPI_WEBHOOK_SECRET`         | Yes      | Must match backend                               |
 |                     | `OPENROUTER_API_KEY`          | Yes      |                                                  |
-|                     | `OPENROUTER_MODEL`            | No       | Default free model (can swap to gpt-4o-mini)     |
+|                     | `OPENROUTER_MODEL`            | No       | Default `openai/gpt-4o-mini` (must support tool calling) |
 |                     | `ELEVENLABS_API_KEY`          | Yes      |                                                  |
 |                     | `ELEVENLABS_VOICE_ID`         | Yes      | Must exist in your ElevenLabs account            |
 |                     | `ELEVENLABS_FALLBACK_VOICE_ID`| Recommended | Second voice for resilience                   |
@@ -319,7 +319,8 @@ The system prompt (`vapi/system_prompt.md`) was iteratively improved from real c
 
 | Issue | Mitigation / Notes |
 |-------|--------------------|
-| Free-tier LLM congestion | Easy to swap `OPENROUTER_MODEL` to `openai/gpt-4o-mini` |
+| Free-tier reasoning models can leak chain-of-thought into the call | Tried `nvidia/nemotron-3-super-120b-a12b:free`; a real call surfaced it audibly reasoning out loud instead of replying cleanly. OpenRouter's `reasoning: {enabled: false}` param fixes this in direct API calls but Vapi's generic OpenRouter integration doesn't pass it through - reverted to `openai/gpt-4o-mini` (fractions of a cent/call) rather than risk it recurring live |
+| `endCallPhrases` can match the first message, not just the goodbye | Hit this for real: "thanks for calling" was in both the phrase list and the greeting, so Vapi force-ended every call right after it played. Fixed by keeping only exclusively-goodbye phrases ("have a great day") and keeping the first message free of any goodbye-adjacent wording |
 | Vapi requires card for any number | Documented; create number manually if needed |
 | ElevenLabs voice ID instability | Always pick IDs from *your* account + fallback voice |
 | STT errors (e.g. “sex” → “six”) | Agent recovers conversationally |

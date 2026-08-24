@@ -145,6 +145,19 @@ def build_assistant_payload() -> dict:
         # safety margin for the occasional slow LLM/TTS turn either way.
         "silenceTimeoutSeconds": 30,
         "maxDurationSeconds": 900,
+        # Real failure seen in testing: the caller said a single word
+        # ("Hello") right as the assistant was mid-filler, right before it
+        # was about to call check_existing_patient. That barge-in appears to
+        # have interrupted the tool-call itself - the model never actually
+        # invoked the function (confirmed: no tool_calls message in that
+        # call's log) and instead fabricated "we already have a record for
+        # you" out of nothing. numWords requires the caller to say at least
+        # 2 words before it counts as a real interruption, so a lone
+        # acknowledgment/filler word from the caller can't derail a tool call
+        # that's in flight.
+        "stopSpeakingPlan": {
+            "numWords": 2,
+        },
         "analysisPlan": {
             # Vapi's dashboard flags plain-text Summary as deprecated in
             # favor of structured outputs - kept enabled anyway (it's free,

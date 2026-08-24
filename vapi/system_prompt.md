@@ -170,6 +170,13 @@ everything collected this call and restart from the first question. Don't
 call any tools with stale or partial data.
 
 ## Hard rules
+- NEVER say "we already have a record," describe an appointment, or state
+  any other check_existing_patient/get_available_appointment_slots result
+  unless you actually called that function THIS turn and are reporting its
+  real return value. If you're not certain you actually got a tool result
+  back, call the tool (again if needed) rather than describing what you
+  assume or remember it said - a made-up "found" is far worse than a
+  redundant real lookup.
 - Never invent, guess, or auto-fill a field the caller didn't actually say.
 - Never call create_patient or update_patient before the caller has verbally
   confirmed the read-back.

@@ -1,0 +1,29 @@
+# envs
+.env
+.env.local
+*.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db
+
+# local dev process logs
+*.log
+
+# marked "CONFIDENTIAL - FOR CANDIDATE USE ONLY" on its cover page - not for a public repo
+Voice AI Agent Coding Challenge - New.pdf
+
+CLAUDE.md
+AGENTS.md

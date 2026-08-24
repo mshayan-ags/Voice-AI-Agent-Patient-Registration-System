@@ -328,6 +328,7 @@ The system prompt (`vapi/system_prompt.md`) was iteratively improved from real c
 | Render free-tier cold starts | First tool call after idle can be slow |
 | No idempotency keys on writes | Agent retries conversationally once |
 | Auto-deploy on Render limited | Manual deploy or connect GitHub App |
+| **Editing the assistant in the Vapi dashboard AND via the API/script concurrently causes clobbering** | Hit this for real: dashboard edits (e.g. clicking a "Model Preset" card) silently swapped the live model to `azure-openai/gpt-5.4` and the voice to Vapi's native "Elliot," and reverted the first message back to an old cached greeting - reintroducing the exact "thanks for calling" call-ending bug. Vapi versions every change (dashboard or API) and always serves the *latest* version to real calls, so whichever side edited last wins. **Treat `vapi/setup_assistant.py` + `system_prompt.md` as the only source of truth** - if the dashboard is used to look around, don't change Model/Voice/First Message there, or re-run `setup_assistant.py update` afterward to restore the known-good config |
 
 ---
 

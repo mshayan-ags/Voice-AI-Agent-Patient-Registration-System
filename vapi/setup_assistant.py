@@ -36,7 +36,10 @@ VAPI_API_KEY = os.environ["VAPI_API_KEY"]
 BACKEND_URL = os.environ["BACKEND_URL"].rstrip("/")
 VAPI_WEBHOOK_SECRET = os.environ["VAPI_WEBHOOK_SECRET"]
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+# Free-tier reasoning models were tried and abandoned here - see
+# system_prompt.md's design notes for why. openai/gpt-4o-mini costs
+# fractions of a cent per call and has been reliable in every real test call.
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
 ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 # A second real voice from the same account, used as a fallback if the

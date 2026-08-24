@@ -72,3 +72,12 @@ def test_validate_sex_normalizes_casing():
 def test_validate_sex_rejects_invalid():
     with pytest.raises(ValidationError):
         validate_sex("sex", "Unknown")
+
+
+def test_validate_insurance_member_id_accepts_alphanumeric():
+    assert validate_insurance_member_id("insurance_member_id", "BX992134") == "BX992134"
+
+
+def test_validate_insurance_member_id_rejects_special_chars():
+    with pytest.raises(ValidationError):
+        validate_insurance_member_id("insurance_member_id", "BX 992134!")

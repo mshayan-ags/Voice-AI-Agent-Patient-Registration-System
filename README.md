@@ -26,7 +26,7 @@ Built as a take-home technical assessment for a **Voice AI / Conversational AI E
 | ![Patient dashboard](docs/Patient%20Dashboard.png) | ![Appointment dashboard](docs/Appointment%20Dashboard.png) |
 | ![Call logs dashboard](docs/Call%20Logs%20Dashboard.png) | ![Vapi assistant config](docs/Vapi%20Assistant.png) |
 | ![Vapi analysis config](docs/Vapi%20Analysis.png) | ![Vapi fallback config](docs/Vapi%20Fallbacks.png) |
-| ![Vapi call logs](docs/Vapi%20Call%20Logs.png) | |
+| ![Vapi call logs](docs/Vapi%20Call%20Logs.png) | ![MongoDB Atlas](docs/MongoDB.png) |
 
 ---
 

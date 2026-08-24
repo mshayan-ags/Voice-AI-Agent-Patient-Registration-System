@@ -123,7 +123,12 @@ def build_assistant_payload() -> dict:
             "have a great day",
             "have a wonderful day",
         ],
-        "silenceTimeoutSeconds": 20,
+        # 20s was too tight against a cold-started backend (Render free tier
+        # can take 20-50s+ to wake up), which could exceed this and end the
+        # call mid-tool-call. A keep-alive ping (.github/workflows) now stops
+        # the backend from going cold in the first place, but 30s stays as a
+        # safety margin for the occasional slow LLM/TTS turn either way.
+        "silenceTimeoutSeconds": 30,
         "maxDurationSeconds": 900,
         "analysisPlan": {
             # Vapi's dashboard flags plain-text Summary as deprecated in

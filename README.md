@@ -8,7 +8,7 @@ Registration take-home assessment.
 **Live demo**
 - Phone number: **+1 (234) 404-2250**
 - API base URL: **https://carecloud-backend.onrender.com**
-- Dashboard: `<fill in once the frontend is deployed - see "Deployment status" below>`
+- Dashboard: **https://carecloud-pi.vercel.app**
 
 ## Screenshots
 
@@ -261,10 +261,25 @@ cp .env.local.example .env.local   # point at the backend URL
 npm run dev
 ```
 
-Visit `/` for the patient list + live stats, `/patients/:id` for full detail
+Visit `/` for the patient list + live stats, `/patient?id=` for full detail
 plus that patient's appointments and call history, `/appointments` for every
 booked appointment, or `/calls` for every logged call including ones that
 never reached a patient record.
+
+**Deploying it (Vercel, free):**
+```bash
+cd frontend
+npx vercel login
+npx vercel --prod
+```
+Then set `NEXT_PUBLIC_API_BASE_URL` under the project's Settings →
+Environment Variables on vercel.com and redeploy (`npx vercel --prod`
+again) so the static build picks it up. The app is a fully static export
+(`output: "export"`) - `/patient?id=` is a query param, not a dynamic route
+segment, specifically so every page can be pre-rendered as plain HTML with
+no server runtime required (this also means it deploys equally well to
+Firebase Hosting's free static tier, GitHub Pages, or any static host, not
+just Vercel).
 
 ## Environment variables
 
@@ -344,7 +359,8 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
 - **Dashboard** - Next.js app: patient list with search and live stats,
   patient detail with appointment + call history, a global appointments
   view (`/appointments`), and a global call-logs view (`/calls`) showing
-  success/fail badges and extracted call data.
+  success/fail badges and extracted call data. Deployed as a static export
+  to Vercel.
 - **Automated tests** - `backend/tests/` (37 tests: validators, the full API
   surface including duplicate-detection and soft-delete, appointment
   booking/lookup/listing, and the Vapi webhook path itself), run against an
@@ -445,6 +461,11 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
   read-only Cargo cache directory. Fixed by pinning `PYTHON_VERSION=3.12.7`
   as an env var (documented in Setup step 2's deploy instructions) rather
   than by changing any dependency version.
+- **Vercel enables "Deployment Protection" by default**, which puts a
+  Vercel-login wall in front of the deployed dashboard - harmless for a
+  private project, but it means the first deploy wasn't actually publicly
+  viewable until that setting was turned off in the project's dashboard
+  (an account-level setting, not something deployable via CLI/API alone).
 - Not HIPAA compliant and not intended to store real patient data (per the
   assessment's own FAQ).
 
@@ -453,12 +474,27 @@ is visible in the dashboard's `/calls` page rather than silently dropped.
 Backend + phone number: **live and permanent** - the FastAPI service runs on
 Render (`https://carecloud-backend.onrender.com`), and the Vapi assistant's
 webhook points there, not at a local tunnel, so the number keeps working
-independent of any one machine staying on. Auto-deploys on every push to
-`main`.
+independent of any one machine staying on.
 
-Dashboard: not yet deployed to a permanent host - run locally per Setup
-step 4 for now (`npm run dev`, pointed at the Render backend URL). Update
-this section once deployed.
+**Auto-deploy caveat:** this service was created via Render's API against a
+plain public repo URL rather than through Render's GitHub App install, and
+Render's own build log says so explicitly ("It looks like we don't have
+access to your repo, but we'll try to clone it anyway"). That means it has
+no webhook to learn about new pushes - `autoDeploy: yes` is configured but
+won't actually fire. After pushing new commits, trigger a deploy manually:
+```bash
+curl -X POST https://api.render.com/v1/services/<service_id>/deploys \
+  -H "Authorization: Bearer $RENDER_API_KEY" -H "Content-Type: application/json" -d '{}'
+```
+or click **Manual Deploy** in the Render dashboard. Connecting the repo
+through Render's dashboard's GitHub integration (one-time OAuth) would fix
+real auto-deploy going forward.
+
+Dashboard: deployed to Vercel as a static export (`output: "export"` in
+`next.config.mjs` - the dashboard has no server-only routes, so nothing here
+needed Vercel's serverless runtime). See the Vercel Deployment Protection
+note under "Live demo" above if the link shows a login page instead of the
+dashboard.
 
 ## Next steps (if continuing past this assessment)
 

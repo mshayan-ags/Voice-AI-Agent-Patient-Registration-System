@@ -61,7 +61,7 @@ export default function CallsPage() {
                       {new Date(log.created_at).toLocaleString()}{" "}
                       {log.patient_id ? (
                         <Link
-                          href={`/patients/${log.patient_id}`}
+                          href={`/patient?id=${log.patient_id}`}
                           onClick={(e) => e.stopPropagation()}
                         >
                           (view patient)

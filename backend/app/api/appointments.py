@@ -9,9 +9,29 @@ router = APIRouter(prefix="/appointments", tags=["appointments"])
 @router.get("/slots")
 async def available_slots():
     slots = await appointment_service.get_available_slots()
-    return ok(
-        [{"slot_id": s["slot_id"], "start_time": s["start_time"].isoformat()} for s in slots]
-    )
+    return ok([{"slot_id": s["slot_id"], "label": s["label"]} for s in slots])
+
+
+@router.get("")
+async def list_appointments(patient_id: str | None = None):
+    appointments = await appointment_service.list_appointments(patient_id)
+    # Light join so the dashboard doesn't need a second round-trip per row -
+    # fine at this data volume; a real system would denormalize or paginate.
+    enriched = []
+    for a in appointments:
+        patient = await patient_service.get_patient(a["patient_id"])
+        enriched.append(
+            {
+                "appointment_id": a["appointment_id"],
+                "patient_id": a["patient_id"],
+                "patient_name": f"{patient.first_name} {patient.last_name}" if patient else None,
+                "label": a["label"],
+                "reason": a.get("reason"),
+                "status": a["status"],
+                "created_at": a["created_at"].isoformat(),
+            }
+        )
+    return ok(enriched)
 
 
 @router.post("")
@@ -34,7 +54,7 @@ async def create_appointment(payload: dict, response: Response):
         {
             "appointment_id": appt["appointment_id"],
             "patient_id": patient_id,
-            "start_time": appt["start_time"].isoformat(),
+            "label": appt["label"],
             "reason": appt["reason"],
             "status": appt["status"],
         }

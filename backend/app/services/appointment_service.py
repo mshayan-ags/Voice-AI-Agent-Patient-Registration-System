@@ -18,6 +18,13 @@ class SlotNotFoundError(Exception):
     worse than no appointment at all."""
 
 
+class SlotAlreadyBookedError(Exception):
+    """Raised when another patient has already taken this exact slot between
+    it being offered and booked. Without this check two callers could both
+    be told "sure, Tuesday at 9am" and both get an appointment_id back for
+    the same slot - the write would succeed, it would just be wrong."""
+
+
 def _format_slot_label(dt: datetime) -> str:
     # strftime's no-leading-zero flags ('%-d' / '%-I') are POSIX-only and
     # raise on Windows, so the day/hour are formatted manually to stay
@@ -50,8 +57,23 @@ def _mock_open_slots(days_ahead: int = 7) -> list[dict]:
     return slots
 
 
+async def _booked_start_times() -> set:
+    # Mongo/BSON has no timezone concept - it round-trips a tz-aware
+    # datetime back as naive UTC. A query filter still matches correctly
+    # (Mongo compares the underlying BSON value, not the Python object), but
+    # a plain Python `in` check against a set of these needs both sides
+    # normalized the same way, or an aware value never equals its own
+    # naive round-trip.
+    cursor = appointments_collection().find({"status": "scheduled"}, {"start_time": 1})
+    return {doc["start_time"].replace(tzinfo=None) async for doc in cursor}
+
+
 async def get_available_slots(limit: int = 3) -> list[dict]:
-    return _mock_open_slots()[:limit]
+    taken = await _booked_start_times()
+    open_slots = [
+        s for s in _mock_open_slots() if s["start_time"].replace(tzinfo=None) not in taken
+    ]
+    return open_slots[:limit]
 
 
 async def get_upcoming_appointments(patient_id: str, limit: int = 3) -> list[dict]:
@@ -97,6 +119,15 @@ async def book_appointment(patient_id: str, slot_id: str, reason: str | None = N
     slot = slots.get(slot_id)
     if slot is None:
         raise SlotNotFoundError(f"'{slot_id}' is not one of the currently offered slots")
+
+    # Re-check right before writing - get_available_slots already filters
+    # out taken slots when offering options, but a slot offered a few turns
+    # ago could have been taken by someone else in the meantime.
+    already_taken = await appointments_collection().find_one(
+        {"start_time": slot["start_time"], "status": "scheduled"}
+    )
+    if already_taken:
+        raise SlotAlreadyBookedError(f"'{slot_id}' was just booked by another patient")
 
     appointment = {
         "appointment_id": str(uuid.uuid4()),

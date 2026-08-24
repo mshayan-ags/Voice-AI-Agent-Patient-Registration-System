@@ -2,6 +2,7 @@ from fastapi import APIRouter, Response
 
 from app.api.schemas import fail, ok
 from app.services import appointment_service, patient_service
+from app.services.appointment_service import SlotAlreadyBookedError, SlotNotFoundError
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -47,9 +48,17 @@ async def create_appointment(payload: dict, response: Response):
         response.status_code = 404
         return fail("NOT_FOUND", "No patient with that id")
 
-    appt = await appointment_service.book_appointment(
-        patient_id=patient_id, slot_id=slot_id, reason=payload.get("reason")
-    )
+    try:
+        appt = await appointment_service.book_appointment(
+            patient_id=patient_id, slot_id=slot_id, reason=payload.get("reason")
+        )
+    except SlotNotFoundError:
+        response.status_code = 422
+        return fail("SLOT_NOT_FOUND", "That slot is not one of the currently offered options")
+    except SlotAlreadyBookedError:
+        response.status_code = 409
+        return fail("SLOT_ALREADY_BOOKED", "That slot was just booked by someone else")
+
     return ok(
         {
             "appointment_id": appt["appointment_id"],

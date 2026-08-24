@@ -99,7 +99,7 @@ export default function PatientsPage() {
               {patients.map((p) => (
                 <tr key={p.patient_id}>
                   <td>
-                    <Link href={`/patients/${p.patient_id}`}>
+                    <Link href={`/patient?id=${p.patient_id}`}>
                       {p.first_name} {p.last_name}
                     </Link>
                   </td>

@@ -64,6 +64,36 @@ def test_validate_name_allows_hyphen_and_apostrophe():
     assert validate_name("last_name", "O'Brien-Smith") == "O'Brien-Smith"
 
 
+def test_validate_name_allows_internal_spaces():
+    assert validate_name("first_name", "Mary Jane") == "Mary Jane"
+    assert validate_name("last_name", "Van Der Berg") == "Van Der Berg"
+
+
+def test_validate_name_rejects_pure_whitespace():
+    with pytest.raises(ValidationError):
+        validate_name("first_name", "   ")
+
+
+def test_validate_sex_accepts_common_aliases():
+    assert validate_sex("sex", "M") == "Male"
+    assert validate_sex("sex", "man") == "Male"
+    assert validate_sex("sex", "F") == "Female"
+
+
+def test_validate_state_accepts_full_state_name():
+    assert validate_state("state", "California") == "CA"
+    assert validate_state("state", "new york") == "NY"
+
+
+def test_validate_zip_accepts_space_instead_of_hyphen():
+    assert validate_zip("zip", "90210 1234") == "90210-1234"
+
+
+def test_dob_accepts_month_name_with_ordinal_and_comma():
+    assert parse_date_of_birth("dob", "March 4th, 1990") == date(1990, 3, 4)
+    assert parse_date_of_birth("dob", "March 4 1990") == date(1990, 3, 4)
+
+
 def test_validate_sex_normalizes_casing():
     assert validate_sex("sex", "female") == "Female"
     assert validate_sex("sex", "decline to answer") == "Decline to Answer"

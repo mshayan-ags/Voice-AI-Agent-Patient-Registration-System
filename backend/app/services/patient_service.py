@@ -17,11 +17,11 @@ from app.models.patient import PatientCreate, PatientOut, PatientUpdate
 
 
 class DuplicatePatientError(Exception):
-    """Raised by create_patient when an active (non-deleted) patient already
-    has this phone number and the caller didn't explicitly opt into a
-    duplicate via allow_duplicate=True. Carries the existing record so the
-    caller (API layer or Vapi tool handler) can surface it without a second
-    lookup."""
+    """Raised by create_patient/update_patient when an active (non-deleted)
+    patient other than the one being written to already has this phone
+    number, and the caller didn't explicitly opt into a duplicate via
+    allow_duplicate=True. Carries the existing record so the caller (API
+    layer or Vapi tool handler) can surface it without a second lookup."""
 
     def __init__(self, existing: PatientOut):
         self.existing = existing
@@ -54,10 +54,13 @@ def _dob_to_storage(d: date) -> datetime:
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
 
 
-async def find_active_by_phone(phone_number: str) -> Optional[PatientOut]:
-    doc = await patients_collection().find_one(
-        {"phone_number": phone_number, "deleted_at": None}
-    )
+async def find_active_by_phone(
+    phone_number: str, *, exclude_patient_id: Optional[str] = None
+) -> Optional[PatientOut]:
+    query: dict = {"phone_number": phone_number, "deleted_at": None}
+    if exclude_patient_id:
+        query["patient_id"] = {"$ne": exclude_patient_id}
+    doc = await patients_collection().find_one(query)
     return _doc_to_out(doc) if doc else None
 
 
@@ -91,8 +94,11 @@ async def list_patients(
     last_name: Optional[str] = None,
     date_of_birth: Optional[str] = None,
     phone_number: Optional[str] = None,
-) -> list[PatientOut]:
-    query: dict = {"deleted_at": None}
+    include_deleted: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[PatientOut], int]:
+    query: dict = {} if include_deleted else {"deleted_at": None}
     if last_name:
         # re.escape prevents a caller-supplied last_name from being
         # interpreted as a regex (NoSQL injection / ReDoS via query params).
@@ -107,14 +113,30 @@ async def list_patients(
         parsed = parse_date_of_birth("date_of_birth", date_of_birth)
         query["date_of_birth"] = _dob_to_storage(parsed)
 
-    cursor = patients_collection().find(query).sort("created_at", -1)
-    return [_doc_to_out(doc) async for doc in cursor]
+    collection = patients_collection()
+    total = await collection.count_documents(query)
+    cursor = collection.find(query).sort("created_at", -1).skip(offset).limit(limit)
+    patients = [_doc_to_out(doc) async for doc in cursor]
+    return patients, total
 
 
-async def update_patient(patient_id: str, payload: PatientUpdate) -> PatientOut:
+async def update_patient(
+    patient_id: str, payload: PatientUpdate, *, allow_duplicate: bool = False
+) -> PatientOut:
     updates = payload.to_update_dict()
     if "date_of_birth" in updates:
         updates["date_of_birth"] = _dob_to_storage(updates["date_of_birth"])
+
+    if "phone_number" in updates and not allow_duplicate:
+        # Without this check, two active records could end up sharing a
+        # phone number - find_active_by_phone would then return whichever
+        # one Mongo happens to hand back first, silently breaking duplicate
+        # detection for that number from then on.
+        existing = await find_active_by_phone(
+            updates["phone_number"], exclude_patient_id=patient_id
+        )
+        if existing:
+            raise DuplicatePatientError(existing)
 
     if not updates:
         # PUT with no actual fields changed (e.g. the voice agent double-

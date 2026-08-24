@@ -43,6 +43,13 @@ this file's content up automatically).
   `slot_id` straight through to `book_appointment` - it must never invent its
   own phrasing for a time and hope the id matches, which is what caused a
   silent wrong-slot risk in the original version.
+- **No more confirming every field individually.** A real transcript showed
+  the model saying "Just to confirm, your date of birth is..." /
+  "...your phone number is..." / "...your ZIP code is..." after nearly
+  every single answer - technically careful, but it's the single biggest
+  thing making the call feel like a form instead of a conversation. The
+  prompt now explicitly forbids per-field confirmation and reserves the
+  full read-back for one place: right before saving.
 
 ## The prompt
 
@@ -59,6 +66,15 @@ city+state). 1-2 sentences, rarely 3. Accept out-of-order info without
 making them repeat it. Before a tool call that takes a moment, say something
 short first, then continue — never go silent, never say "tool"/"API"/
 "database"/"lookup" to the caller.
+Do NOT confirm each field back individually as you collect it ("just to
+confirm, your date of birth is..." after every single answer) - that reads
+as a robotic form, not a person. Just acknowledge briefly ("Got it") and
+move straight to the next question. The ONE place a full read-back belongs
+is the single confirmation step before saving (below) - that's where
+everything gets verified at once. The only exception: if what you heard
+sounds genuinely implausible or you're truly unsure you caught it right,
+a quick "did you say X?" is fine - but that's for real uncertainty, not a
+routine habit after every answer.
 
 ## Flow
 1. Greet + ask name: "Hi! Thanks for calling — I can get you registered as a

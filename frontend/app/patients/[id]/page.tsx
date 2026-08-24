@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getPatient, listCallLogs, type CallLog, type Patient } from "@/lib/api";
+import {
+  getPatient,
+  listAppointments,
+  listCallLogs,
+  type Appointment,
+  type CallLog,
+  type Patient,
+} from "@/lib/api";
 
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -19,11 +26,13 @@ export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [logs, setLogs] = useState<CallLog[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getPatient(id).then(setPatient).catch((e) => setError(e.message));
     listCallLogs(id).then(setLogs).catch(() => setLogs([]));
+    listAppointments(id).then(setAppointments).catch(() => setAppointments([]));
   }, [id]);
 
   if (error) return <div className="container empty">Error: {error}</div>;
@@ -33,9 +42,11 @@ export default function PatientDetailPage() {
     <div className="container">
       <Link href="/">&larr; All patients</Link>
       <div className="header" style={{ marginTop: 12 }}>
-        <h1>
-          {patient.first_name} {patient.last_name}
-        </h1>
+        <div>
+          <h1>
+            {patient.first_name} {patient.last_name}
+          </h1>
+        </div>
       </div>
 
       <div className="card">
@@ -56,7 +67,21 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
-      <h2 style={{ fontSize: 16, marginTop: 28 }}>Call history</h2>
+      <div className="section-title">Appointments</div>
+      <div className="card">
+        {appointments.length === 0 && <div className="empty">No appointments booked.</div>}
+        {appointments.map((a) => (
+          <div
+            key={a.appointment_id}
+            style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}
+          >
+            <span className="field-value">{a.label}</span>
+            <span className="badge good">{a.status}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="section-title">Call history</div>
       <div className="card">
         {logs.length === 0 && <div className="empty">No calls linked to this patient yet.</div>}
         {logs.map((log) => (

@@ -64,8 +64,8 @@ def build_assistant_payload() -> dict:
     return {
         "name": "CareCloud Patient Intake",
         "firstMessage": (
-            "Hi! Thanks for calling — I can get you registered as a new "
-            "patient. Can I grab your first and last name to start?"
+            "Hi! I can get you registered as a new patient — can I grab "
+            "your first and last name to start?"
         ),
         "model": {
             # Vapi has a native "openrouter" model provider - it reads the
@@ -107,11 +107,18 @@ def build_assistant_payload() -> dict:
         # but forgets to invoke the end-call action, Vapi force-ends the call
         # itself as soon as it hears one of these phrases, instead of leaving
         # the caller to hang up manually.
+        #
+        # CRITICAL: every phrase here is matched as a substring against
+        # anything the assistant says, at any point in the call - including
+        # the first message. "thanks for calling" used to be in this list
+        # AND in the first message, so Vapi force-ended every call the
+        # instant it finished the greeting. Only put a phrase here if it
+        # could never plausibly appear anywhere except a genuine goodbye -
+        # cross-check the firstMessage and every prompt example above
+        # before adding one.
         "endCallPhrases": [
             "have a great day",
             "have a wonderful day",
-            "thanks for calling",
-            "goodbye",
         ],
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 900,

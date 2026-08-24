@@ -8,7 +8,7 @@ startup.
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -16,7 +16,7 @@ from app.api import appointments, call_logs, patients, vapi_tools
 from app.api.schemas import fail
 from app.core.config import get_settings
 from app.core.logging import logger
-from app.db.mongo import ensure_indexes
+from app.db.mongo import ensure_indexes, get_db
 
 
 @asynccontextmanager
@@ -49,5 +49,15 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(response: Response):
+    # A health check that doesn't touch the database would happily report
+    # "ok" while every real endpoint 500s on a dead Mongo connection - most
+    # dangerous right after a Render cold start, exactly when you'd want
+    # this to catch it.
+    try:
+        await get_db().command("ping")
+        return {"status": "ok", "database": "connected"}
+    except Exception:
+        logger.exception("health check: database ping failed")
+        response.status_code = 503
+        return {"status": "degraded", "database": "unreachable"}

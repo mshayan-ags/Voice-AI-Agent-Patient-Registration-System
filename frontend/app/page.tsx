@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { listPatients, type Patient } from "@/lib/api";
+import { listAppointments, listCallLogs, listPatients, type Patient } from "@/lib/api";
 
 export default function PatientsPage() {
   const [patients, setPatients] = useState<Patient[] | null>(null);
+  const [appointmentCount, setAppointmentCount] = useState<number | null>(null);
+  const [callCount, setCallCount] = useState<number | null>(null);
   const [lastName, setLastName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +23,8 @@ export default function PatientsPage() {
 
   useEffect(() => {
     load();
+    listAppointments().then((a) => setAppointmentCount(a.length)).catch(() => setAppointmentCount(0));
+    listCallLogs().then((c) => setCallCount(c.length)).catch(() => setCallCount(0));
   }, []);
 
   return (
@@ -30,9 +34,20 @@ export default function PatientsPage() {
           <h1>Registered Patients</h1>
           <p>Live from MongoDB via the FastAPI service — same data the voice agent writes to.</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span className="badge">{patients?.length ?? 0} patients</span>
-          <Link href="/calls">Call logs &rarr;</Link>
+      </div>
+
+      <div className="stat-row">
+        <div className="stat-card">
+          <div className="stat-value">{patients?.length ?? "—"}</div>
+          <div className="stat-label">Patients</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{appointmentCount ?? "—"}</div>
+          <div className="stat-label">Appointments booked</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{callCount ?? "—"}</div>
+          <div className="stat-label">Calls logged</div>
         </div>
       </div>
 
@@ -48,6 +63,7 @@ export default function PatientsPage() {
             placeholder="Filter by last name…"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
+            style={{ flex: 1 }}
           />
           <button type="submit">Search</button>
           {lastName && (

@@ -36,9 +36,14 @@ VAPI_API_KEY = os.environ["VAPI_API_KEY"]
 BACKEND_URL = os.environ["BACKEND_URL"].rstrip("/")
 VAPI_WEBHOOK_SECRET = os.environ["VAPI_WEBHOOK_SECRET"]
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
 ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
+# A second real voice from the same account, used as a fallback if the
+# primary voiceId ever fails mid-call (see the fallbackPlan comment below).
+ELEVENLABS_FALLBACK_VOICE_ID = os.environ.get(
+    "ELEVENLABS_FALLBACK_VOICE_ID", "CwhRBWXzGAHq8TQ4Fs17"
+)
 
 BASE = "https://api.vapi.ai"
 HEADERS = {"Authorization": f"Bearer {VAPI_API_KEY}", "Content-Type": "application/json"}
@@ -79,6 +84,21 @@ def build_assistant_payload() -> dict:
             # of audio quality for materially faster time-to-first-audio,
             # which matters more for a phone call than for a narration.
             "model": "eleven_flash_v2_5",
+            # This is the fix for a real failure seen in testing: an invalid/
+            # unavailable voiceId (ElevenLabs occasionally retires a default
+            # voice from an account's library) killed the call outright with
+            # `pipeline-error-eleven-labs-voice-failed`. A second, different
+            # voice from the same account means one bad voice/model
+            # combination no longer takes the whole call down with it.
+            "fallbackPlan": {
+                "voices": [
+                    {
+                        "provider": "11labs",
+                        "voiceId": ELEVENLABS_FALLBACK_VOICE_ID,
+                        "model": "eleven_flash_v2_5",
+                    }
+                ]
+            },
         },
         "serverUrl": f"{BACKEND_URL}/vapi/tool-calls",
         "serverUrlSecret": VAPI_WEBHOOK_SECRET,
@@ -95,10 +115,59 @@ def build_assistant_payload() -> dict:
         ],
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 900,
-        # Enables Vapi's own call summary, which lands in the
-        # end-of-call-report webhook as `message.summary` - we store that
-        # against the patient record for the "call transcript" bonus.
-        "analysisPlan": {"summaryPlan": {"enabled": True}},
+        "analysisPlan": {
+            # Vapi's dashboard flags plain-text Summary as deprecated in
+            # favor of structured outputs - kept enabled anyway (it's free,
+            # still works, and gives call_logs a human-readable fallback)
+            # alongside the two structured plans below, which are the
+            # forward-looking replacement.
+            "summaryPlan": {"enabled": True},
+            # Machine-readable extraction stored in the end-of-call-report
+            # as message.analysis.structuredData - lets call_logs answer
+            # "what actually happened on this call" without parsing prose.
+            "structuredDataPlan": {
+                "enabled": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "patient_first_name": {"type": "string"},
+                        "patient_last_name": {"type": "string"},
+                        "caller_intent": {
+                            "type": "string",
+                            "enum": [
+                                "new_registration",
+                                "update_existing",
+                                "appointment_only",
+                                "other",
+                            ],
+                        },
+                        "registration_completed": {"type": "boolean"},
+                        "existing_patient_recognized": {"type": "boolean"},
+                        "appointment_booked": {"type": "boolean"},
+                    },
+                },
+            },
+            # Stored as message.analysis.successEvaluation - a quick pass/
+            # fail signal for dashboards/alerting without reading a
+            # transcript, distinct from "did the call error" (ended_reason
+            # already covers that).
+            "successEvaluationPlan": {
+                "enabled": True,
+                "rubric": "PassFail",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Return true only if the caller's registration or "
+                            "update was completed successfully, or they were "
+                            "clearly told why not, before the call ended. "
+                            "Return false if the call dropped, errored, or "
+                            "ended without a resolution."
+                        ),
+                    }
+                ],
+            },
+        },
     }
 
 

@@ -6,6 +6,7 @@ from app.utils.validators import (
     ValidationError,
     normalize_phone,
     parse_date_of_birth,
+    validate_insurance_member_id,
     validate_name,
     validate_sex,
     validate_state,

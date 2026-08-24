@@ -3,6 +3,10 @@ from datetime import date, datetime
 
 NAME_RE = re.compile(r"^[A-Za-z'-]{1,50}$")
 ZIP_RE = re.compile(r"^\d{5}(-\d{4})?$")
+# Spec: "Alphanumeric member/subscriber ID" - real insurance IDs sometimes
+# include a hyphen, so it's allowed alongside letters/digits rather than
+# enforcing a stricter alphanumeric-only read of the spec.
+INSURANCE_MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,30}$")
 
 # USPS 2-letter state/territory abbreviations
 VALID_STATES = {
@@ -58,6 +62,13 @@ def validate_zip(field: str, value: str) -> str:
     value = value.strip()
     if not ZIP_RE.match(value):
         raise ValidationError(field, "must be a 5-digit or ZIP+4 U.S. zip code")
+    return value
+
+
+def validate_insurance_member_id(field: str, value: str) -> str:
+    value = value.strip()
+    if not INSURANCE_MEMBER_ID_RE.match(value):
+        raise ValidationError(field, "must be an alphanumeric member/subscriber ID")
     return value
 
 

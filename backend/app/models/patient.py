@@ -16,6 +16,7 @@ from app.utils.validators import (
     ValidationError,
     normalize_phone,
     parse_date_of_birth,
+    validate_insurance_member_id,
     validate_name,
     validate_sex,
     validate_state,
@@ -99,6 +100,13 @@ class PatientBase(BaseModel):
     def _zip(cls, v: str) -> str:
         return validate_zip("zip_code", v)
 
+    @field_validator("insurance_member_id")
+    @classmethod
+    def _insurance_member_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        return validate_insurance_member_id("insurance_member_id", v)
+
 
 class PatientCreate(PatientBase):
     pass
@@ -163,6 +171,11 @@ class PatientUpdate(BaseModel):
     @classmethod
     def _zip(cls, v):
         return None if v is None else validate_zip("zip_code", v)
+
+    @field_validator("insurance_member_id")
+    @classmethod
+    def _insurance_member_id(cls, v):
+        return None if v in (None, "") else validate_insurance_member_id("insurance_member_id", v)
 
     def to_update_dict(self) -> dict:
         return {k: v for k, v in self.model_dump().items() if v is not None}

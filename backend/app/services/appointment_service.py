@@ -77,6 +77,21 @@ async def get_upcoming_appointments(patient_id: str, limit: int = 3) -> list[dic
     return appointments
 
 
+async def list_appointments(patient_id: str | None = None) -> list[dict]:
+    """Every booked appointment (any status, any time) - backs the dashboard's
+    appointments view, distinct from get_upcoming_appointments which only
+    returns future/scheduled ones for the voice agent's proactive check."""
+    query = {"patient_id": patient_id} if patient_id else {}
+    cursor = appointments_collection().find(query).sort("start_time", 1)
+    appointments = []
+    async for doc in cursor:
+        doc.pop("_id", None)
+        if not doc.get("label"):
+            doc["label"] = _format_slot_label(doc["start_time"])
+        appointments.append(doc)
+    return appointments
+
+
 async def book_appointment(patient_id: str, slot_id: str, reason: str | None = None) -> dict:
     slots = {s["slot_id"]: s for s in _mock_open_slots()}
     slot = slots.get(slot_id)

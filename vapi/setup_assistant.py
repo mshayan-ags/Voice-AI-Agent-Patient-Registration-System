@@ -80,6 +80,21 @@ def build_assistant_payload() -> dict:
             "messages": [{"role": "system", "content": _load_system_prompt()}],
             "tools": TOOLS,
         },
+        # Explicit on purpose: PATCH only touches fields present in this
+        # payload, so anything left out (this used to be left out) can
+        # silently drift to whatever a dashboard click last set it to - a
+        # dashboard "Model Preset" click switched this to Google's
+        # gemini-2.0-flash transcriber (no credential configured for it on
+        # this org), which failed every single call at the STT layer with
+        # call.start.error-get-resources-validation /
+        # error-vapifault-google-transcriber-failed. Deepgram needs no
+        # separate credential on Vapi and is the config that was proven
+        # working before any dashboard experimentation touched it.
+        "transcriber": {
+            "provider": "deepgram",
+            "model": "flux-general-en",
+            "language": "en",
+        },
         "voice": {
             "provider": "11labs",
             "voiceId": ELEVENLABS_VOICE_ID,

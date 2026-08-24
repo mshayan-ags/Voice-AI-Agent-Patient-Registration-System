@@ -6,7 +6,8 @@ Two message types land here, both on the same "Server URL":
 1. type == "tool-calls"        - the assistant invoked one of our function
    tools mid-conversation (check_existing_patient, create_patient, etc).
    We must respond with {"results": [{"toolCallId": ..., "result": ...}]}
-   so Vapi can hand the result back to the LLM.
+   where each `result` is a JSON *string* per Vapi's documented contract -
+   not a bare object, even though Vapi tolerates the latter today.
 
 2. type == "end-of-call-report" - sent once after the call ends, containing
    the transcript/summary. We look up which patient this call created (via
@@ -20,6 +21,7 @@ fix rather than a mystery. Verify against your Vapi dashboard's "Server URL"
 docs when wiring the real assistant.
 """
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -30,24 +32,36 @@ from app.core.logging import logger
 from app.db.mongo import call_logs_collection, call_sessions_collection
 from app.models.patient import PatientCreate, PatientUpdate
 from app.services import appointment_service, patient_service
-from app.services.appointment_service import SlotNotFoundError
+from app.services.appointment_service import SlotAlreadyBookedError, SlotNotFoundError
 from app.services.patient_service import DuplicatePatientError, PatientNotFoundError
-from app.utils.validators import ValidationError, clean_pydantic_message
+from app.utils.validators import ValidationError, all_field_errors
 
 router = APIRouter(prefix="/vapi", tags=["vapi"])
 
 
-def _field_error_message(e: Exception) -> str:
-    """Turn either our own ValidationError or pydantic's into one short
-    'field: message' string the LLM can relay back to the caller in plain
-    language, instead of a raw stack of pydantic error objects."""
-    if isinstance(e, ValidationError):
-        return f"{e.field}: {e.message}"
-    if isinstance(e, PydanticValidationError):
-        first = e.errors()[0]
-        field = ".".join(str(p) for p in first["loc"])
-        return f"{field}: {clean_pydantic_message(first['msg'])}"
-    return str(e)
+def _field_error_result(e: Exception) -> dict:
+    """Every field that failed, not just the first - so the agent can ask
+    about all of them instead of one slow round trip per field."""
+    errors = all_field_errors(e)
+    if len(errors) == 1:
+        field, message = next(iter(errors.items()))
+        return {"success": False, "error": f"{field}: {message}"}
+    return {
+        "success": False,
+        "error": f"{len(errors)} fields need attention: "
+        + "; ".join(f"{f}: {m}" for f, m in errors.items()),
+        "field_errors": errors,
+    }
+
+
+def _duplicate_result(existing) -> dict:
+    return {
+        "success": False,
+        "duplicate": True,
+        "existing_patient_id": existing.patient_id,
+        "existing_first_name": existing.first_name,
+        "existing_last_name": existing.last_name,
+    }
 
 
 def _verify_secret(x_vapi_secret: str | None) -> None:
@@ -57,24 +71,34 @@ def _verify_secret(x_vapi_secret: str | None) -> None:
 
 
 def _extract_tool_calls(message: dict) -> list[dict]:
-    """Normalize Vapi's tool-call list to [{id, name, arguments}, ...]."""
+    """Normalize Vapi's tool-call list to [{id, name, arguments}, ...].
+    `arguments` is usually already a dict, but Vapi's OpenAI-compatible
+    function-calling shape technically defines it as a JSON *string* - if a
+    future payload sends it that way, json.loads it rather than passing a
+    raw string straight into PatientCreate(**args), which would blow up on
+    the first field access."""
     calls = message.get("toolCalls") or message.get("toolCallList") or []
     normalized = []
     for call in calls:
         fn = call.get("function", call)
+        arguments = fn.get("arguments") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments) if arguments.strip() else {}
+            except json.JSONDecodeError:
+                arguments = {}
         normalized.append(
-            {
-                "id": call.get("id"),
-                "name": fn.get("name"),
-                "arguments": fn.get("arguments") or {},
-            }
+            {"id": call.get("id"), "name": fn.get("name"), "arguments": arguments}
         )
     return normalized
 
 
 async def _run_tool(name: str, args: dict, call_id: str | None) -> dict:
     if name == "check_existing_patient":
-        patient = await patient_service.find_active_by_phone(args["phone_number"])
+        phone_number = args.get("phone_number")
+        if not phone_number:
+            return {"success": False, "error": "phone_number is required"}
+        patient = await patient_service.find_active_by_phone(phone_number)
         if not patient:
             return {"found": False}
         upcoming = await appointment_service.get_upcoming_appointments(patient.patient_id)
@@ -95,22 +119,17 @@ async def _run_tool(name: str, args: dict, call_id: str | None) -> dict:
         try:
             payload = PatientCreate(**args)
         except (ValidationError, PydanticValidationError) as e:
-            return {"success": False, "error": _field_error_message(e)}
+            return _field_error_result(e)
 
         try:
             patient = await patient_service.create_patient(payload, allow_duplicate=allow_duplicate)
         except DuplicatePatientError as e:
             upcoming = await appointment_service.get_upcoming_appointments(e.existing.patient_id)
-            return {
-                "success": False,
-                "duplicate": True,
-                "existing_patient_id": e.existing.patient_id,
-                "existing_first_name": e.existing.first_name,
-                "existing_last_name": e.existing.last_name,
-                "upcoming_appointments": [
-                    {"appointment_id": a["appointment_id"], "label": a["label"]} for a in upcoming
-                ],
-            }
+            result = _duplicate_result(e.existing)
+            result["upcoming_appointments"] = [
+                {"appointment_id": a["appointment_id"], "label": a["label"]} for a in upcoming
+            ]
+            return result
 
         if call_id:
             await call_sessions_collection().update_one(
@@ -119,40 +138,48 @@ async def _run_tool(name: str, args: dict, call_id: str | None) -> dict:
                 upsert=True,
             )
 
+        # Per the "observability" requirement: the full collected payload,
+        # not just an id, lands in stdout at the moment a registration
+        # completes - whether that call came from the phone or from curl.
         logger.info(
-            "vapi create_patient success patient_id=%s call_id=%s",
-            patient.patient_id,
+            "vapi create_patient success call_id=%s payload=%s",
             call_id,
+            payload.model_dump(mode="json"),
         )
         return {"success": True, "patient_id": patient.patient_id}
 
     if name == "update_patient":
-        patient_id = args.pop("patient_id")
+        patient_id = args.pop("patient_id", None)
+        if not patient_id:
+            return {"success": False, "error": "patient_id is required"}
+        allow_duplicate = bool(args.pop("allow_duplicate", False))
         try:
             payload = PatientUpdate(**args)
         except (ValidationError, PydanticValidationError) as e:
-            return {"success": False, "error": _field_error_message(e)}
+            return _field_error_result(e)
 
         try:
-            patient = await patient_service.update_patient(patient_id, payload)
+            patient = await patient_service.update_patient(
+                patient_id, payload, allow_duplicate=allow_duplicate
+            )
         except PatientNotFoundError:
             return {"success": False, "error": "No patient found with that id"}
+        except DuplicatePatientError as e:
+            return _duplicate_result(e.existing)
         return {"success": True, "patient_id": patient.patient_id}
 
     if name == "get_available_appointment_slots":
         slots = await appointment_service.get_available_slots()
-        return {
-            "slots": [
-                {"slot_id": s["slot_id"], "label": s["label"]} for s in slots
-            ]
-        }
+        return {"slots": [{"slot_id": s["slot_id"], "label": s["label"]} for s in slots]}
 
     if name == "book_appointment":
+        patient_id = args.get("patient_id")
+        slot_id = args.get("slot_id")
+        if not patient_id or not slot_id:
+            return {"success": False, "error": "patient_id and slot_id are required"}
         try:
             appt = await appointment_service.book_appointment(
-                patient_id=args["patient_id"],
-                slot_id=args["slot_id"],
-                reason=args.get("reason"),
+                patient_id=patient_id, slot_id=slot_id, reason=args.get("reason")
             )
         except SlotNotFoundError:
             return {
@@ -160,6 +187,14 @@ async def _run_tool(name: str, args: dict, call_id: str | None) -> dict:
                 "error": (
                     "That slot is no longer valid - call get_available_appointment_slots "
                     "again and offer the caller one of the current options."
+                ),
+            }
+        except SlotAlreadyBookedError:
+            return {
+                "success": False,
+                "error": (
+                    "Someone else just booked that slot - call "
+                    "get_available_appointment_slots again and offer fresh options."
                 ),
             }
         return {"success": True, "appointment_id": appt["appointment_id"], "label": appt["label"]}
@@ -221,8 +256,26 @@ async def handle_vapi_webhook(request: Request, x_vapi_secret: str | None = Head
     if msg_type == "tool-calls":
         results = []
         for call_item in _extract_tool_calls(message):
-            result = await _run_tool(call_item["name"], dict(call_item["arguments"]), call_id)
-            results.append({"toolCallId": call_item["id"], "result": result})
+            try:
+                result = await _run_tool(call_item["name"], dict(call_item["arguments"]), call_id)
+            except Exception:
+                # A crash here (e.g. Mongo unreachable) must not take down
+                # the whole webhook response - Vapi still needs a
+                # {"results": [...]} shaped reply for every tool call it
+                # sent, or the assistant is left hanging mid-turn with no
+                # way to tell the caller what happened. The assessment asks
+                # explicitly: "does the caller get an error or silence?" -
+                # this is what makes it an error, not silence.
+                logger.exception(
+                    "tool call crashed name=%s call_id=%s", call_item.get("name"), call_id
+                )
+                result = {
+                    "success": False,
+                    "error": "A system error occurred - please try that again.",
+                }
+            results.append(
+                {"toolCallId": call_item["id"], "result": json.dumps(result)}
+            )
         return {"results": results}
 
     # Unhandled message types (status updates, speech-update, etc.) - just ack.

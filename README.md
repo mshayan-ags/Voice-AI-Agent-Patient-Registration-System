@@ -498,11 +498,10 @@ dashboard.
 
 ## Next steps (if continuing past this assessment)
 
-- Deploy the dashboard to a permanent host (Vercel) so it doesn't need a
-  local `npm run dev` process to view.
 - Idempotency keys on `create_patient` tool calls.
 - Real appointment system integration instead of mock slots.
 - Structured, per-call transcript search on the dashboard.
 - Rate limiting / API auth (currently open, per "no HIPAA" scope note).
-- Trim the system prompt for lower LLM time-to-first-token, to shave the
-  remaining latency budget further.
+- Connect the GitHub repo through Render's dashboard (proper GitHub App
+  install) so pushes actually auto-deploy instead of needing a manual
+  trigger.

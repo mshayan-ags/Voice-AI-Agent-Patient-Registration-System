@@ -180,7 +180,14 @@ async def handle_vapi_webhook(request: Request, x_vapi_secret: str | None = Head
 
     if msg_type == "end-of-call-report":
         transcript = message.get("transcript") or message.get("artifact", {}).get("transcript")
-        summary = message.get("summary")
+        # Vapi's webhook payload has been observed with these fields at the
+        # top level of `message`; `analysis.*` is checked too since that's
+        # where Vapi's docs say they're stored on the Call object itself -
+        # cheap to support both shapes rather than guess wrong.
+        analysis = message.get("analysis") or {}
+        summary = message.get("summary") or analysis.get("summary")
+        structured_data = message.get("structuredData") or analysis.get("structuredData")
+        success_evaluation = message.get("successEvaluation") or analysis.get("successEvaluation")
         ended_reason = message.get("endedReason")
         session = await call_sessions_collection().find_one({"call_id": call_id})
         patient_id = session["patient_id"] if session else None
@@ -195,16 +202,19 @@ async def handle_vapi_webhook(request: Request, x_vapi_secret: str | None = Head
                 "patient_id": patient_id,
                 "transcript": transcript,
                 "summary": summary,
+                "structured_data": structured_data,
+                "success_evaluation": success_evaluation,
                 "ended_reason": ended_reason,
                 "ended_at": message.get("endedAt"),
                 "created_at": datetime.now(timezone.utc),
             }
         )
         logger.info(
-            "call log stored call_id=%s patient_id=%s ended_reason=%s",
+            "call log stored call_id=%s patient_id=%s ended_reason=%s success=%s",
             call_id,
             patient_id,
             ended_reason,
+            success_evaluation,
         )
         return {"received": True}
 

@@ -1,0 +1,25 @@
+name: Keep Render backend warm
+
+# Render's free tier spins the backend down after ~15 minutes of no HTTP
+# traffic; the next request then pays a 20-50+ second cold-start penalty.
+# On a live phone call that's fatal: a check_existing_patient/create_patient
+# tool call taking that long both feels broken and can exceed Vapi's
+# silenceTimeoutSeconds, which force-ends the call mid-conversation.
+#
+# This runs independently of any chat session or local machine being on -
+# GitHub's own infrastructure pings /health often enough that the backend
+# never goes idle long enough to sleep.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          curl -sf -m 30 https://carecloud-backend.onrender.com/health || \
+          curl -sf -m 30 https://carecloud-backend.onrender.com/health || \
+          echo "Both attempts failed - backend may be down, not just cold."

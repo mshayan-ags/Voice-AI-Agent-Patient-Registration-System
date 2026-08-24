@@ -1,7 +1,7 @@
 import pytest
 
 from app.services import appointment_service
-from app.services.appointment_service import SlotNotFoundError
+from app.services.appointment_service import SlotAlreadyBookedError, SlotNotFoundError
 
 
 async def test_available_slots_have_id_and_label():
@@ -38,6 +38,23 @@ async def test_upcoming_appointments_returns_booked_slot():
 async def test_upcoming_appointments_empty_for_unknown_patient():
     upcoming = await appointment_service.get_upcoming_appointments("nobody-here")
     assert upcoming == []
+
+
+async def test_booked_slot_cannot_be_booked_again_by_another_patient():
+    slots = await appointment_service.get_available_slots()
+    slot_id = slots[0]["slot_id"]
+    await appointment_service.book_appointment("patient-a", slot_id)
+
+    with pytest.raises(SlotAlreadyBookedError):
+        await appointment_service.book_appointment("patient-b", slot_id)
+
+
+async def test_booked_slot_no_longer_offered_as_available():
+    slots_before = await appointment_service.get_available_slots(limit=10)
+    await appointment_service.book_appointment("patient-a", slots_before[0]["slot_id"])
+
+    slots_after = await appointment_service.get_available_slots(limit=10)
+    assert slots_before[0]["slot_id"] not in {s["slot_id"] for s in slots_after}
 
 
 async def test_list_appointments_filters_by_patient(client, valid_patient_payload):

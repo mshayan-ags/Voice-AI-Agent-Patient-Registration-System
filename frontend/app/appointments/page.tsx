@@ -44,7 +44,7 @@ export default function AppointmentsPage() {
                 <tr key={a.appointment_id}>
                   <td>
                     {a.patient_name ? (
-                      <Link href={`/patients/${a.patient_id}`}>{a.patient_name}</Link>
+                      <Link href={`/patient?id=${a.patient_id}`}>{a.patient_name}</Link>
                     ) : (
                       <span className="field-label" style={{ display: "inline" }}>
                         unknown patient

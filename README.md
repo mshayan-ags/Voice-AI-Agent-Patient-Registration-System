@@ -19,6 +19,17 @@ Built as a take-home technical assessment for a **Voice AI / Conversational AI E
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Patient dashboard](docs/Patient%20Dashboard.png) | ![Appointment dashboard](docs/Appointment%20Dashboard.png) |
+| ![Call logs dashboard](docs/Call%20Logs%20Dashboard.png) | ![Vapi assistant config](docs/Vapi%20Assistant.png) |
+| ![Vapi analysis config](docs/Vapi%20Analysis.png) | ![Vapi fallback config](docs/Vapi%20Fallbacks.png) |
+| ![Vapi call logs](docs/Vapi%20Call%20Logs.png) | |
+
+---
+
 ## Features
 
 ### Core Requirements
@@ -102,7 +113,7 @@ Caller (PSTN)
 | `state`                   | string    | Yes      | Valid 2-letter U.S. state abbreviation      |
 | `zip_code`                | string    | Yes      | 5-digit or ZIP+4                            |
 | `insurance_provider`      | string    | No       |                                             |
-| `insurance_member_id`     | string    | No       |                                             |
+| `insurance_member_id`     | string    | No       | Alphanumeric (hyphens allowed)              |
 | `preferred_language`      | string    | No       | Default: `"English"`                        |
 | `emergency_contact_name`  | string    | No       |                                             |
 | `emergency_contact_phone` | string    | No       | Valid U.S. 10-digit                         |
@@ -177,7 +188,7 @@ or on error:
 │   ├── tools.py           # Function tool definitions
 │   └── setup_assistant.py # Creates / updates the Vapi assistant
 ├── frontend/              # Next.js dashboard
-└── docs/screenshots/
+└── docs/                  # Screenshots referenced above
 ```
 
 ---
@@ -317,8 +328,6 @@ The system prompt (`vapi/system_prompt.md`) was iteratively improved from real c
 | No idempotency keys on writes | Agent retries conversationally once |
 | Auto-deploy on Render limited | Manual deploy or connect GitHub App |
 
-See the original README section for full historical context of each decision.
-
 ---
 
 ## Testing the System
@@ -375,5 +384,4 @@ This project was created for a technical assessment. Feel free to use it as a re
 
 **Built with care under time pressure.**  
 We would rather see a simple system that works flawlessly than an over-engineered one that crashes on the first call.
-```
 

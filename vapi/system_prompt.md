@@ -36,6 +36,20 @@ this file's content up automatically).
   any goodbye-adjacent phrasing at all. The lesson generalizes: never add a
   phrase to `endCallPhrases` without first checking it doesn't also appear
   in the first message or anywhere else the prompt tells the model to say.
+- **Free-tier reasoning models can leak their chain-of-thought straight into
+  the call.** `nvidia/nemotron-3-super-120b-a12b:free` was picked earlier
+  after verifying it handled a direct tool-calling test correctly - but a
+  real phone call surfaced something that test didn't: the assistant
+  started audibly reasoning out loud ("I need to call check_existing_patient
+  with the phone number... that sounds like they're saying...") instead of
+  just asking a clean clarifying question. Nemotron supports an OpenRouter
+  `reasoning: {enabled: false}` parameter that suppresses this - confirmed
+  working in a direct API test - but Vapi's generic `openrouter` model
+  integration has no way to pass that parameter through, so it can't be
+  fixed from our side while staying on this model via Vapi. Reverted to
+  `openai/gpt-4o-mini`, which has been reliable across every real test call
+  and costs fractions of a cent per call - not free, but the cost of a
+  caller hearing raw model internals is worse than the cost of the tokens.
 - **Filler variety, not filler ban.** Early transcripts showed the exact
   phrase "This will just take a sec" repeated verbatim across tool calls -
   technically fine, but reads as scripted. The prompt now gives a small pool
